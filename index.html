@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <title>Bolões App - Isolamento de Dados</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <style>
+    .card-hover:hover { transform: translateY(-3px); transition: all 0.3s ease; }
+    .toast { position: fixed; bottom: 20px; right: 20px; background-color: #10b981; color: white; padding: 12px 20px; border-radius: 8px; z-index: 1001; animation: slideIn 0.3s; display: flex; align-items: center; gap: 8px; }
+    @keyframes slideIn { from { transform: translateX(100%); } to { transform: translateX(0); } }
+  </style>
+</head>
+<body class="bg-slate-50 min-h-screen text-slate-800">
+
+  <div id="root"></div>
+  <div id="toast-container"></div>
+
+  <script>
+    const DB_KEY = 'boloes_app_v1';
+
+    // PERSISTÊNCIA
+    function saveToDB() { localStorage.setItem(DB_KEY, JSON.stringify(state)); }
+    function loadFromDB() { const data = localStorage.getItem(DB_KEY); return data ? JSON.parse(data) : null; }
+
+    // ESTADO
+    const initialState = { users: [], baloes: [], userSession: null, view: 'login' };
+    const state = loadFromDB() || initialState;
+
+    // LOGOUT CORRIGIDO
+    function logout() {
+      state.userSession = null;
+      state.view = 'login';
+      saveToDB();
+      render();
+    }
+
+    // FUNÇÕES DE SISTEMA
+    function register(name, email, password) {
+      if (!name || !email || !password) return showToast('Preencha tudo!', 'bg-red-500');
+      if (state.users.find(u => u.email === email)) return showToast('E-mail já existe!', 'bg-red-500');
+      state.users.push({ name, email, password });
+      saveToDB();
+      showToast('Usuário salvo!');
+      setView('login');
+    }
+
+    function login(email, password) {
+      const user = state.users.find(u => u.email === email && u.password === password);
+      if (user) {
+        state.userSession = { name: user.name, email: user.email };
+        state.view = 'feed';
+        saveToDB(); // Salva a sessão para persistir no reload
+        render();
+      } else {
+        showToast('Erro no login!', 'bg-red-500');
+      }
+    }
+
+    function createBolao(name, reward) {
+      if (!name) return showToast('Nome obrigatório!', 'bg-red-500');
+      const newBolao = {
+        id: Math.random().toString(36).slice(2, 8).toUpperCase(),
+        name,
+        reward: reward || 'A definir',
+        owner: state.userSession.email, // VINCULA AO USUÁRIO LOGADO
+        createdAt: new Date().toLocaleDateString('pt-BR')
+      };
+      state.baloes.unshift(newBolao);
+      saveToDB();
+      showToast('Bolão registrado!');
+      setView('feed');
+    }
+
+    // INTERFACE
+    function setView(v) { state.view = v; render(); }
+    function showToast(msg, color = 'bg-emerald-500') {
+      const c = document.getElementById('toast-container');
+      const t = document.createElement('div');
+      t.className = `toast ${color}`;
+      t.innerHTML = `<i class="fas fa-database mr-2"></i><span>${msg}</span>`;
+      c.appendChild(t);
+      setTimeout(() => t.remove(), 3000);
+    }
+
+    function Header() {
+      return `
+        <header class="bg-white border-b p-4 shadow-sm mb-6">
+          <div class="max-w-5xl mx-auto flex justify-between items-center">
+            <h1 class="font-black text-2xl text-indigo-600 tracking-tighter">BOLINHO</h1>
+            <div class="flex items-center gap-4">
+              <span class="text-sm font-bold text-slate-600">${state.userSession.name}</span>
+              <button onclick="logout()" class="text-red-500 font-bold border border-red-100 px-3 py-1 rounded-lg">Logout</button>
+            </div>
+          </div>
+        </header>`;
+    }
+
+    function LoginView() {
+      return `
+        <div class="flex items-center justify-center min-h-screen bg-slate-100">
+          <div class="bg-white p-10 rounded-3xl shadow-xl w-full max-w-sm border">
+            <h2 class="text-3xl font-black mb-8 text-center">Login</h2>
+            <input id="email" type="email" placeholder="E-mail" class="w-full border p-4 rounded-xl mb-3 outline-none">
+            <input id="pass" type="password" placeholder="Senha" class="w-full border p-4 rounded-xl mb-6 outline-none">
+            <button onclick="login(document.getElementById('email').value, document.getElementById('pass').value)" class="w-full bg-indigo-600 text-white p-4 rounded-xl font-black">ENTRAR</button>
+            <button onclick="setView('register')" class="w-full mt-6 text-sm text-indigo-600 font-bold">CRIAR CONTA</button>
+          </div>
+        </div>`;
+    }
+
+    function FeedView() {
+      // FILTRO DE SEGURANÇA: Mostra apenas bolões onde o owner é o usuário logado
+      const meusBaloes = state.baloes.filter(b => b.owner === state.userSession.email);
+
+      return `
+        <div class="max-w-5xl mx-auto p-4">
+          <div class="flex justify-between items-center mb-10">
+            <div>
+              <h2 class="text-3xl font-black text-slate-800">Meus Registros</h2>
+              <p class="text-slate-500">Isolamento de dados por e-mail: <b>${state.userSession.email}</b></p>
+            </div>
+            <button onclick="setView('create')" class="bg-indigo-600 text-white px-6 py-3 rounded-2xl font-bold">+ NOVO BOLÃO</button>
+          </div>
+          <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            ${meusBaloes.map(b => `
+              <div class="bg-white p-8 rounded-3xl border border-slate-200 shadow-sm card-hover">
+                <div class="text-xs font-black text-indigo-400 mb-1 uppercase tracking-widest">OWNER: ${b.owner}</div>
+                <h3 class="text-2xl font-bold mb-4 text-slate-800">${b.name}</h3>
+                <div class="text-sm font-semibold text-slate-500 mb-2 italic">Prêmio: ${b.reward}</div>
+                <div class="text-xs text-slate-400 mt-4 pt-4 border-t">Criado em: ${b.createdAt}</div>
+              </div>
+            `).join('')}
+          </div>
+          ${meusBaloes.length === 0 ? `<div class="text-center py-20 bg-white border-2 border-dashed border-slate-200 rounded-3xl">Nenhum dado encontrado para este usuário.</div>` : ''}
+        </div>`;
+    }
+
+    // Renderizador simplificado para o exemplo
+    function render() {
+      const root = document.getElementById('root');
+      if (state.view === 'login') root.innerHTML = LoginView();
+      else if (state.view === 'register') root.innerHTML = `
+        <div class="flex items-center justify-center min-h-screen bg-slate-100">
+          <div class="bg-white p-10 rounded-3xl shadow-xl w-full max-w-sm">
+            <h2 class="text-3xl font-black mb-8">Cadastro</h2>
+            <input id="r_name" placeholder="Nome" class="w-full border p-4 rounded-xl mb-3">
+            <input id="r_email" placeholder="E-mail" class="w-full border p-4 rounded-xl mb-3">
+            <input id="r_pass" type="password" placeholder="Senha" class="w-full border p-4 rounded-xl mb-6">
+            <button onclick="register(document.getElementById('r_name').value, document.getElementById('r_email').value, document.getElementById('r_pass').value)" class="w-full bg-emerald-600 text-white p-4 rounded-xl font-black">SALVAR</button>
+            <button onclick="setView('login')" class="w-full mt-4 text-sm font-bold text-slate-500">VOLTAR</button>
+          </div>
+        </div>`;
+      else if (state.view === 'feed') root.innerHTML = Header() + FeedView();
+      else if (state.view === 'create') root.innerHTML = Header() + `
+        <div class="max-w-lg mx-auto p-10 bg-white rounded-3xl border shadow-sm mt-10">
+          <h2 class="text-3xl font-black mb-6">Novo Registro</h2>
+          <input id="c_name" placeholder="Nome do Bolão" class="w-full border p-4 rounded-xl mb-4">
+          <input id="c_reward" placeholder="Prêmio" class="w-full border p-4 rounded-xl mb-8">
+          <button onclick="createBolao(document.getElementById('c_name').value, document.getElementById('c_reward').value)" class="w-full bg-indigo-600 text-white p-4 rounded-xl font-black">CONFIRMAR COMMIT</button>
+          <button onclick="setView('feed')" class="w-full mt-4 text-slate-400 font-medium">CANCELAR</button>
+        </div>`;
+    }
+
+    render();
+  </script>
+</body>
+</html>
